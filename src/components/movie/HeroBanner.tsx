@@ -12,7 +12,7 @@ export const HeroBanner = () => {
   const [index, setIndex] = useState(0);
   const [loaded, setLoaded] = useState(false);
   const { isInWatchlist, addToWatchlist, removeFromWatchlist } = useWatchlist();
-  const { isAuthenticated } = useAuth();
+  //const { isAuthenticated } = useAuth();
   const { notify } = useToast();
   const navigate = useNavigate();
 
