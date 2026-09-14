@@ -14,7 +14,7 @@ interface MovieCardProps {
 export const MovieCard = ({ item }: MovieCardProps) => {
   const navigate = useNavigate();
   const { isInWatchlist, addToWatchlist, removeFromWatchlist } = useWatchlist();
-  const { isAuthenticated } = useAuth();
+//  const { isAuthenticated } = useAuth();
   const { notify } = useToast();
   const [loaded, setLoaded] = useState(false);
   const inWatchlist = isInWatchlist(item.id);
