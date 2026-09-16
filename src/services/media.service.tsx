@@ -35,6 +35,39 @@ let store: MovieItem[] = [];
 let loadPromise: Promise<MovieItem[]> | null = null;
 let genreById = new Map<number, string>();
 
+// Optional backend (project-website-backend) that aggregates & caches the TMDB catalog.
+// The site prefers this when available and falls back to the direct TMDB pipeline.
+// Leave VITE_API_URL empty (default) to use the in-repo Vercel serverless /api.
+const API_BASE: string = import.meta.env.VITE_API_URL ?? "";
+
+interface RawCatalog {
+  genres: { id: number; name: string }[];
+  movies: TmdbMovie[];
+  tv: TmdbMovie[];
+  trending: TmdbMovie[];
+  animeShows: TmdbMovie[];
+  animeMovies: TmdbMovie[];
+  dramaShows: TmdbMovie[];
+  dramaMovies: TmdbMovie[];
+}
+
+async function fetchRemoteCatalog(): Promise<RawCatalog | null> {
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 8000);
+    const res = await fetch(`${API_BASE}/api/catalog`, {
+      signal: controller.signal,
+    });
+    clearTimeout(timer);
+    if (!res.ok) return null;
+    const data = (await res.json()) as Partial<RawCatalog>;
+    if (!data || !Array.isArray(data.movies)) return null;
+    return data as RawCatalog;
+  } catch {
+    return null;
+  }
+}
+
 const genreName = (id: number): string => genreById.get(id) ?? "";
 
 const MATURE_GENRE_IDS = [27, 80, 53]; // Horror, Crime, Thriller
@@ -148,6 +181,73 @@ const toItem = (t: TmdbMovie, type: MediaType, index: number): MovieItem => {
 async function loadCatalog(): Promise<MovieItem[]> {
   const fill = (items: MovieItem[], fallback: MovieItem[]): MovieItem[] =>
     items.length ? items : clone(fallback);
+  const unique = <T extends { id: string }>(list: T[]): T[] => {
+    const seen = new Set<string>();
+    return list.filter((item) => {
+      if (seen.has(item.id)) return false;
+      seen.add(item.id);
+      return true;
+    });
+  };
+  const uniqueMedia = (list: MovieItem[]): MovieItem[] => {
+    const seen = new Set<string>();
+    return list.filter((item) => {
+      const key = item.title.trim().toLowerCase();
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  };
+
+  const buildStore = (raw: RawCatalog): MovieItem[] => {
+    genreById = new Map(raw.genres.map((g) => [g.id, g.name]));
+
+    const movies = fill(
+      unique(raw.movies.map((m, i) => toItem(m, "movie", i))),
+      mockMovies,
+    );
+
+    // Combine Anime Shows (TV series) and Anime Movies
+    const animeShows = raw.animeShows.map((m, i) => toItem(m, "anime", i));
+    const animeMovies = raw.animeMovies.map((m, i) =>
+      toItem(m, "anime", i + 100),
+    );
+    const anime = fill(unique([...animeShows, ...animeMovies]), mockAnime);
+
+    // Combine Drama Shows (K-Drama series) and Drama Movies
+    const dramaShows = raw.dramaShows.map((m, i) => toItem(m, "drama", i));
+    const dramaMovies = raw.dramaMovies.map((m, i) =>
+      toItem(m, "drama", i + 100),
+    );
+    const fetchedDrama = uniqueMedia([...dramaShows, ...dramaMovies]);
+    const drama = uniqueMedia([
+      ...fetchedDrama,
+      ...(fetchedDrama.length < mockDrama.length ? mockDrama : []),
+    ]);
+
+    const series = fill(
+      unique(raw.tv.map((m, i) => toItem(m, "series", i))),
+      mockSeries,
+    );
+    const trendingItems = unique(
+      raw.trending.map((m, i) => toItem(m, "movie", i + 200)),
+    );
+
+    return [...trendingItems, ...movies, ...anime, ...drama, ...series];
+  };
+
+  // 1st choice: the backend catalog (aggregated + cached from TMDB)
+  const remote = await fetchRemoteCatalog();
+  if (remote) {
+    try {
+      store = buildStore(remote);
+      return clone(store);
+    } catch {
+      // fall through to the direct TMDB pipeline below
+    }
+  }
+
+  // 2nd choice: direct TMDB pipeline
   try {
     const [
       genresRes,
@@ -169,64 +269,22 @@ async function loadCatalog(): Promise<MovieItem[]> {
       getDramaMovies(1),
     ]);
 
-    genreById = new Map(
-      genresRes.status === "fulfilled"
-        ? genresRes.value.map((g) => [g.id, g.name])
-        : [],
-    );
     const ok = <T,>(r: PromiseSettledResult<T>): T =>
       r.status === "fulfilled" ? r.value : ([] as never);
-    const unique = <T extends { id: string }>(list: T[]): T[] => {
-      const seen = new Set<string>();
-      return list.filter((item) => {
-        if (seen.has(item.id)) return false;
-        seen.add(item.id);
-        return true;
-      });
+
+    const raw: RawCatalog = {
+      genres:
+        genresRes.status === "fulfilled" ? genresRes.value : [],
+      movies: ok(moviesRes),
+      tv: ok(tvRes),
+      trending: ok(trendingRes),
+      animeShows: ok(animeShowsRes),
+      animeMovies: ok(animeMoviesRes),
+      dramaShows: ok(dramaShowsRes),
+      dramaMovies: ok(dramaMoviesRes),
     };
 
-    const uniqueMedia = (list: MovieItem[]): MovieItem[] => {
-      const seen = new Set<string>();
-      return list.filter((item) => {
-        const key = item.title.trim().toLowerCase();
-        if (seen.has(key)) return false;
-        seen.add(key);
-        return true;
-      });
-    };
-
-    const movies = fill(
-      unique(ok(moviesRes).map((m, i) => toItem(m, "movie", i))),
-      mockMovies,
-    );
-
-    // Combine Anime Shows (TV series) and Anime Movies
-    const animeShows = ok(animeShowsRes).map((m, i) => toItem(m, "anime", i));
-    const animeMovies = ok(animeMoviesRes).map((m, i) =>
-      toItem(m, "anime", i + 100),
-    );
-    const anime = fill(unique([...animeShows, ...animeMovies]), mockAnime);
-
-    // Combine Drama Shows (K-Drama series) and Drama Movies
-    const dramaShows = ok(dramaShowsRes).map((m, i) => toItem(m, "drama", i));
-    const dramaMovies = ok(dramaMoviesRes).map((m, i) =>
-      toItem(m, "drama", i + 100),
-    );
-    const fetchedDrama = uniqueMedia([...dramaShows, ...dramaMovies]);
-    const drama = uniqueMedia([
-      ...fetchedDrama,
-      ...(fetchedDrama.length < mockDrama.length ? mockDrama : []),
-    ]);
-
-    const series = fill(
-      unique(ok(tvRes).map((m, i) => toItem(m, "series", i))),
-      mockSeries,
-    );
-    const trendingItems = unique(
-      ok(trendingRes).map((m, i) => toItem(m, "movie", i + 200)),
-    );
-
-    store = [...trendingItems, ...movies, ...anime, ...drama, ...series];
+    store = buildStore(raw);
   } catch {
     store = [...mockMovies, ...mockAnime, ...mockDrama, ...mockSeries];
   }
