@@ -3,7 +3,6 @@ import { Link, useNavigate } from "react-router-dom";
 import { Play, Plus, Check, Star } from "lucide-react";
 import type { MovieItem } from "../../types/movie.tsx";
 import { useWatchlist } from "../../contexts/WatchlistContext.tsx";
-import { useAuth } from "../../contexts/AuthContext.tsx";
 import { useToast } from "../../contexts/ToastContext.tsx";
 import { QualityBadge } from "../ui/Badge.tsx";
 

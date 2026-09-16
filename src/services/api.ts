@@ -235,7 +235,7 @@ async function get<T>(path: string, params: QueryParams = {}): Promise<T> {
 }
 
 interface TmdbResult {
-  results: TmdbMovie[];
+  results: Array<Record<string, unknown>>;
 }
 
 const normalizeShow = (r: Record<string, unknown>): TmdbMovie => {
