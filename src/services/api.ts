@@ -226,10 +226,14 @@ const toQuery = (params: QueryParams): string =>
   ).toString();
 
 async function get<T>(path: string, params: QueryParams = {}): Promise<T> {
-  const apiKey = getApiKey();
   // Request English by default so TMDB translates Asian titles (Korean, Japanese, Chinese) to English
-  const url = `${BASE_URL}${path}?${toQuery({ api_key: apiKey, language: "en-US", ...params })}`;
-  const res = await fetch(url);
+  const request = (key: string) =>
+    fetch(
+      `${BASE_URL}${path}?${toQuery({ api_key: key, language: "en-US", ...params })}`,
+    );
+  let res = await request(getApiKey());
+  // If the stored (custom) key fails, fall back to the default key
+  if (!res.ok) res = await request(DEFAULT_API_KEY);
   if (!res.ok) throw new Error(`TMDB request failed (${res.status})`);
   return res.json() as Promise<T>;
 }
