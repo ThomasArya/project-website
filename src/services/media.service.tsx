@@ -185,6 +185,16 @@ async function loadCatalog(): Promise<MovieItem[]> {
       });
     };
 
+    const uniqueMedia = (list: MovieItem[]): MovieItem[] => {
+      const seen = new Set<string>();
+      return list.filter((item) => {
+        const key = item.title.trim().toLowerCase();
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
+    };
+
     const movies = fill(
       unique(ok(moviesRes).map((m, i) => toItem(m, "movie", i))),
       mockMovies,
@@ -202,7 +212,11 @@ async function loadCatalog(): Promise<MovieItem[]> {
     const dramaMovies = ok(dramaMoviesRes).map((m, i) =>
       toItem(m, "drama", i + 100),
     );
-    const drama = fill(unique([...dramaShows, ...dramaMovies]), mockDrama);
+    const fetchedDrama = uniqueMedia([...dramaShows, ...dramaMovies]);
+    const drama = uniqueMedia([
+      ...fetchedDrama,
+      ...(fetchedDrama.length < mockDrama.length ? mockDrama : []),
+    ]);
 
     const series = fill(
       unique(ok(tvRes).map((m, i) => toItem(m, "series", i))),
